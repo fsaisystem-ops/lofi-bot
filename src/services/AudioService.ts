@@ -9,7 +9,6 @@ import {
   NoSubscriberBehavior,
 } from "@discordjs/voice";
 import type { VoiceBasedChannel, VoiceState } from "discord.js";
-import { Readable } from "node:stream";
 import { config } from "@/config";
 import type { GuildAudioState } from "@/models/types";
 import { streamLogger, playerLogger, logger, voiceLogger } from "@/utils/logger";
@@ -92,14 +91,11 @@ export class AudioService implements IAudioService {
 
       state.ffmpegProcess = this.streamService.createStream(streamUrl);
 
-      if (!state.ffmpegProcess.stdout || typeof state.ffmpegProcess.stdout === "number") {
+      if (!state.ffmpegProcess.stdout) {
         throw new Error("Failed to create ffmpeg stdout stream");
       }
 
-      const nodeStream = Readable.fromWeb(
-        state.ffmpegProcess.stdout as import("stream/web").ReadableStream
-      );
-      const resource = createAudioResource(nodeStream, {
+      const resource = createAudioResource(state.ffmpegProcess.stdout, {
         inputType: StreamType.OggOpus,
       });
       state.player.play(resource);
@@ -132,7 +128,7 @@ export class AudioService implements IAudioService {
       "Reconnecting..."
     );
 
-    await Bun.sleep(config.stream.reconnectDelayMs);
+    await new Promise((resolve) => setTimeout(resolve, config.stream.reconnectDelayMs));
 
     const streamUrl = (state as GuildAudioState & { currentStreamUrl?: string }).currentStreamUrl;
     if (state.isPlaying && streamUrl) {
@@ -212,6 +208,14 @@ export class AudioService implements IAudioService {
   }
 
   private setupPlayerListeners(state: GuildAudioState, guildId: string): void {
+    state.player.on(AudioPlayerStatus.Playing, () => {
+      playerLogger.info({ guildId }, "Audio is playing");
+    });
+
+    state.player.on(AudioPlayerStatus.Buffering, () => {
+      playerLogger.warn({ guildId }, "Audio is buffering");
+    });
+
     state.player.on(AudioPlayerStatus.Idle, async () => {
       if (state.isPlaying) {
         playerLogger.warn({ guildId }, "Stream ended unexpectedly, attempting reconnect");

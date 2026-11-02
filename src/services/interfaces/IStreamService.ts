@@ -1,5 +1,5 @@
-import type { Subprocess } from "bun";
+import type { ChildProcess } from "node:child_process";
 
 export interface IStreamService {
-  createStream(url: string): Subprocess;
+  createStream(url: string): ChildProcess;
 }

@@ -1,28 +1,26 @@
-import { spawn, type Subprocess } from "bun";
-import ffmpegPath from "ffmpeg-static";
+import { spawn, type ChildProcess } from "node:child_process";
+import { streamLogger } from "@/utils/logger";
 import type { IStreamService } from "./interfaces/IStreamService";
 
 export class StreamService implements IStreamService {
-  createStream(url: string): Subprocess {
-    if (!ffmpegPath) {
-      throw new Error("ffmpeg-static path not found");
-    }
-
-    return spawn({
-      cmd: [
-        ffmpegPath,
+  createStream(url: string): ChildProcess {
+    const proc = spawn(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "warning",
         "-reconnect",
         "1",
         "-reconnect_streamed",
         "1",
         "-reconnect_delay_max",
         "5",
-        "-analyzeduration",
-        "0",
-        "-loglevel",
-        "error",
+        "-user_agent",
+        "Mozilla/5.0",
         "-i",
         url,
+        "-vn",
         "-f",
         "ogg",
         "-c:a",
@@ -34,13 +32,25 @@ export class StreamService implements IStreamService {
         "-b:a",
         "96k",
         "-application",
-        "lowdelay",
+        "audio",
         "-frame_duration",
         "20",
-        "-",
+        "pipe:1",
       ],
-      stdout: "pipe",
-      stderr: "ignore",
+      { stdio: ["ignore", "pipe", "pipe"] }
+    );
+
+    proc.stderr?.on("data", (chunk: Buffer) => {
+      const line = chunk.toString().trim();
+      if (line) {
+        streamLogger.warn({ ffmpeg: line }, "ffmpeg");
+      }
     });
+
+    proc.on("error", (error) => {
+      streamLogger.error({ err: error }, "ffmpeg failed to start");
+    });
+
+    return proc;
   }
 }

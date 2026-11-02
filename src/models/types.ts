@@ -1,11 +1,11 @@
 import type { AudioPlayer, VoiceConnection } from "@discordjs/voice";
-import type { Subprocess } from "bun";
+import type { ChildProcess } from "node:child_process";
 import type { Message } from "discord.js";
 
 export interface GuildAudioState {
   connection: VoiceConnection;
   player: AudioPlayer;
-  ffmpegProcess: Subprocess | null;
+  ffmpegProcess: ChildProcess | null;
   reconnectAttempts: number;
   isPlaying: boolean;
   currentStationId: number | null;
