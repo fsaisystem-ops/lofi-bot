@@ -7,7 +7,7 @@ export class MessageView {
   }
 
   alreadyPlaying(): string {
-    return "Already playing! Use `!stop` first to switch stations.";
+    return "Already playing! Use `/stop` first to switch stations.";
   }
 
   nowPlaying(stationName: string): string {
@@ -28,9 +28,9 @@ export class MessageView {
 
   stationNotFound(query?: string): string {
     if (query) {
-      return `Station "${query}" not found. Use \`!stations\` to see available stations.`;
+      return `Station "${query}" not found. Use \`/stations\` to see available stations.`;
     }
-    return "No default station configured. Use `!stations` to see available stations.";
+    return "No default station configured. Use `/stations` to see available stations.";
   }
 
   stationList(stations: Station[]): string {
@@ -45,7 +45,7 @@ export class MessageView {
       lines.push(`\`${station.id}\` **${station.name}**${defaultMarker}${desc}`);
     }
     lines.push("");
-    lines.push("Use `!play <name>` or `!play <id>` to play a station.");
+    lines.push("Use `/play` and type the station name or id.");
     return lines.join("\n");
   }
 

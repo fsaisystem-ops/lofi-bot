@@ -6,7 +6,7 @@ import type { ICommand } from "./interfaces/ICommand";
 export class HealthCommand implements ICommand {
   readonly name = "health";
   readonly description = "Check bot health status";
-  readonly usage = "!health";
+  readonly usage = "/health";
   readonly adminOnly = false;
 
   private readonly view = new MessageView();

@@ -1,4 +1,3 @@
-import type { VoiceBasedChannel } from "discord.js";
 import type { CommandContext, CommandResult } from "@/models/types";
 import type { IAudioService } from "@/services/interfaces/IAudioService";
 import type { ISessionService } from "@/services/interfaces/ISessionService";
@@ -10,7 +9,7 @@ import type { ICommand } from "./interfaces/ICommand";
 export class PlayCommand implements ICommand {
   readonly name = "play";
   readonly description = "Play a radio station in your voice channel";
-  readonly usage = "!play [station name or id]";
+  readonly usage = "/play [station]";
   readonly adminOnly = false;
 
   private readonly view = new MessageView();
@@ -22,14 +21,16 @@ export class PlayCommand implements ICommand {
   ) {}
 
   async execute(context: CommandContext): Promise<CommandResult> {
-    const { message, args } = context;
-    const voiceChannel = message.member?.voice.channel as VoiceBasedChannel | null;
+    const { actor, args, voiceChannel } = context;
+    const guildId = context.guildId;
+
+    if (!guildId) {
+      return { success: false, message: "This command can only be used in a server." };
+    }
 
     if (!voiceChannel) {
       return { success: false, message: this.view.notInVoiceChannel() };
     }
-
-    const guildId = message.guildId!;
 
     if (this.audioService.hasState(guildId)) {
       return { success: false, message: this.view.alreadyPlaying() };
@@ -48,12 +49,12 @@ export class PlayCommand implements ICommand {
       await this.audioService.startStream(guildId, station.url);
 
       // Start listening session for the user
-      const userId = message.author.id;
+      const userId = actor.id;
       await this.sessionService.startSession(guildId, userId, station.id, {
         userId,
-        username: message.author.username,
-        displayName: message.author.displayName,
-        avatarUrl: message.author.avatarURL(),
+        username: actor.username,
+        displayName: actor.displayName,
+        avatarUrl: actor.avatarUrl,
       });
 
       return { success: true, message: this.view.nowPlaying(station.name) };

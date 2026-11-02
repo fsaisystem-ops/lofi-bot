@@ -7,7 +7,7 @@ import type { ICommand } from "./interfaces/ICommand";
 export class RankCommand implements ICommand {
   readonly name = "rank";
   readonly description = "View server leaderboard";
-  readonly usage = "!rank";
+  readonly usage = "/rank";
   readonly adminOnly = false;
 
   private readonly view = new MessageView();
@@ -18,9 +18,8 @@ export class RankCommand implements ICommand {
   ) {}
 
   async execute(context: CommandContext): Promise<CommandResult> {
-    const { message } = context;
-    const guildId = message.guild?.id;
-    const guildName = message.guild?.name || "Server";
+    const guildId = context.guildId;
+    const guildName = context.guildName || "Server";
 
     if (!guildId) {
       return { success: false, message: "This command can only be used in a server." };
@@ -31,7 +30,7 @@ export class RankCommand implements ICommand {
     if (topStats.length === 0) {
       return {
         success: true,
-        message: "No one has earned XP in this server yet! Use `!play` to start listening.",
+        message: "No one has earned XP in this server yet! Use `/play` to start listening.",
       };
     }
 
@@ -59,7 +58,7 @@ export class RankCommand implements ICommand {
     }
 
     // Find current user's rank
-    const userId = message.author.id;
+    const userId = context.actor.id;
     const allStats = await this.profileService.getTopByGuild(guildId, 100);
     const userRank = allStats.findIndex((s) => s.userId === userId) + 1;
 

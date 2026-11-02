@@ -7,7 +7,7 @@ import type { ICommand } from "./interfaces/ICommand";
 export class AddStationCommand implements ICommand {
   readonly name = "addstation";
   readonly description = "Add a new radio station";
-  readonly usage = "!addstation <name> <url> [description]";
+  readonly usage = "/addstation";
   readonly adminOnly = true;
 
   private readonly view = new MessageView();

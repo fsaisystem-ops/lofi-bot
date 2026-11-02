@@ -1,6 +1,6 @@
 import type { AudioPlayer, VoiceConnection } from "@discordjs/voice";
 import type { ChildProcess } from "node:child_process";
-import type { Message } from "discord.js";
+import type { VoiceBasedChannel } from "discord.js";
 
 export interface GuildAudioState {
   connection: VoiceConnection;
@@ -13,8 +13,18 @@ export interface GuildAudioState {
   connectedSince: Date;
 }
 
+export interface CommandActor {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+}
+
 export interface CommandContext {
-  message: Message;
+  guildId: string | null;
+  guildName: string | null;
+  actor: CommandActor;
+  voiceChannel: VoiceBasedChannel | null;
   args: string[];
 }
 

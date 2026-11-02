@@ -7,7 +7,7 @@ import type { ICommand } from "./interfaces/ICommand";
 export class GlobalRankCommand implements ICommand {
   readonly name = "globalrank";
   readonly description = "View global leaderboard";
-  readonly usage = "!globalrank";
+  readonly usage = "/globalrank";
   readonly adminOnly = false;
 
   private readonly view = new MessageView();
@@ -18,14 +18,12 @@ export class GlobalRankCommand implements ICommand {
   ) {}
 
   async execute(context: CommandContext): Promise<CommandResult> {
-    const { message } = context;
-
     const topProfiles = await this.profileService.getTopGlobal(10);
 
     if (topProfiles.length === 0) {
       return {
         success: true,
-        message: "No one has earned XP yet! Use `!play` to start listening.",
+        message: "No one has earned XP yet! Use `/play` to start listening.",
       };
     }
 
@@ -54,7 +52,7 @@ export class GlobalRankCommand implements ICommand {
     }
 
     // Find current user's rank
-    const userId = message.author.id;
+    const userId = context.actor.id;
     const allProfiles = await this.profileService.getTopGlobal(100);
     const userRank = allProfiles.findIndex((p) => p.userId === userId) + 1;
 

@@ -7,7 +7,7 @@ import type { ICommand } from "./interfaces/ICommand";
 export class RemoveStationCommand implements ICommand {
   readonly name = "removestation";
   readonly description = "Remove a radio station";
-  readonly usage = "!removestation <id>";
+  readonly usage = "/removestation";
   readonly adminOnly = true;
 
   private readonly view = new MessageView();

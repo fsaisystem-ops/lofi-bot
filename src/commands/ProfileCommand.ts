@@ -6,7 +6,7 @@ import type { ICommand } from "./interfaces/ICommand";
 export class ProfileCommand implements ICommand {
   readonly name = "profile";
   readonly description = "View your lofi profile";
-  readonly usage = "!profile";
+  readonly usage = "/profile";
   readonly adminOnly = false;
 
   private readonly view = new MessageView();
@@ -14,9 +14,9 @@ export class ProfileCommand implements ICommand {
   constructor(private readonly profileService: IProfileService) {}
 
   async execute(context: CommandContext): Promise<CommandResult> {
-    const { message } = context;
-    const userId = message.author.id;
-    const guildId = message.guild?.id;
+    const { actor } = context;
+    const userId = actor.id;
+    const guildId = context.guildId;
 
     const profile = await this.profileService.getProfile(userId);
 
@@ -24,7 +24,7 @@ export class ProfileCommand implements ICommand {
       return {
         success: true,
         message:
-          "You haven't started your lofi journey yet! Use `!play` to start listening and earn XP.",
+          "You haven't started your lofi journey yet! Use `/play` to start listening and earn XP.",
       };
     }
 
@@ -50,7 +50,7 @@ export class ProfileCommand implements ICommand {
     const globalRank = topGlobal.findIndex((p) => p.userId === userId) + 1;
     const globalRankText = globalRank > 0 ? `\n🌍 Global Rank: #${globalRank}` : "";
 
-    const displayName = profile.displayName || profile.username || message.author.displayName;
+    const displayName = profile.displayName || profile.username || actor.displayName;
     const totalTime = this.view.formatTime(profile.totalMinutesListened);
 
     const lines = [

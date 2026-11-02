@@ -44,12 +44,7 @@ validateConfig();
 
 // Initialize Discord client
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.MessageContent,
-  ],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
 
 // Dependency Injection - Build the object graph
@@ -124,6 +119,13 @@ client.once(Events.ClientReady, async (readyClient) => {
     runtimeLog("seed ok");
     await sessionService.cleanupOrphanedSessions();
     runtimeLog("sessions cleaned");
+    try {
+      await commandController.register(readyClient);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      runtimeLog(`slash register failed ${text}`);
+      botLogger.error({ err: error }, "Failed to register slash commands");
+    }
   } catch (error) {
     const text = error instanceof Error ? error.stack ?? error.message : String(error);
     runtimeLog(`ready failed ${text}`);
@@ -131,8 +133,19 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 });
 
-client.on(Events.MessageCreate, async (message) => {
-  await commandController.handleMessage(message);
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+  await commandController.handleInteraction(interaction);
+});
+
+client.on(Events.GuildCreate, async (guild) => {
+  if (!guild.client.isReady()) return;
+  try {
+    await commandController.register(guild.client);
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    runtimeLog(`slash register failed ${text}`);
+  }
 });
 
 client.on(Events.VoiceStateUpdate, (oldState, newState) => {

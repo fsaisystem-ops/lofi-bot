@@ -7,7 +7,7 @@ import type { ICommand } from "./interfaces/ICommand";
 export class SetDefaultCommand implements ICommand {
   readonly name = "setdefault";
   readonly description = "Set the default radio station";
-  readonly usage = "!setdefault <id>";
+  readonly usage = "/setdefault";
   readonly adminOnly = true;
 
   private readonly view = new MessageView();
