@@ -12,6 +12,7 @@ import type { VoiceBasedChannel, VoiceState } from "discord.js";
 import { config } from "@/config";
 import type { GuildAudioState } from "@/models/types";
 import { streamLogger, playerLogger, logger, voiceLogger } from "@/utils/logger";
+import { runtimeLog } from "@/utils/runtime-log";
 import type { IAudioService } from "./interfaces/IAudioService";
 import type { ISessionService } from "./interfaces/ISessionService";
 import type { IStreamService } from "./interfaces/IStreamService";
@@ -101,6 +102,7 @@ export class AudioService implements IAudioService {
       state.player.play(resource);
       state.isPlaying = true;
       state.reconnectAttempts = 0;
+      runtimeLog("player.play called");
 
       // Store the URL for reconnection
       (state as GuildAudioState & { currentStreamUrl?: string }).currentStreamUrl = streamUrl;
@@ -174,6 +176,17 @@ export class AudioService implements IAudioService {
     }
   }
 
+  describePlayback(): string[] {
+    const lines: string[] = [];
+    for (const [guildId, state] of this.guildStates) {
+      const ffmpeg = state.ffmpegProcess;
+      lines.push(
+        `${guildId} player=${state.player.state.status} voice=${state.connection.state.status} flag=${state.isPlaying} ffmpegExit=${ffmpeg?.exitCode ?? "running"} channel=${state.channelId}`
+      );
+    }
+    return lines;
+  }
+
   handleVoiceStateUpdate(oldState: VoiceState, newState: VoiceState): void {
     const guildId = oldState.guild.id;
     const state = this.guildStates.get(guildId);
@@ -210,13 +223,16 @@ export class AudioService implements IAudioService {
   private setupPlayerListeners(state: GuildAudioState, guildId: string): void {
     state.player.on(AudioPlayerStatus.Playing, () => {
       playerLogger.info({ guildId }, "Audio is playing");
+      runtimeLog(`${guildId} audio playing`);
     });
 
     state.player.on(AudioPlayerStatus.Buffering, () => {
       playerLogger.warn({ guildId }, "Audio is buffering");
+      runtimeLog(`${guildId} audio buffering`);
     });
 
     state.player.on(AudioPlayerStatus.Idle, async () => {
+      runtimeLog(`${guildId} audio idle`);
       if (state.isPlaying) {
         playerLogger.warn({ guildId }, "Stream ended unexpectedly, attempting reconnect");
         await this.handleStreamError(state);
@@ -225,6 +241,7 @@ export class AudioService implements IAudioService {
 
     state.player.on("error", async (error) => {
       playerLogger.error({ guildId, error: error.message }, "Player error");
+      runtimeLog(`${guildId} player error ${error.message}`);
       if (state.isPlaying) {
         await this.handleStreamError(state);
       }
@@ -232,6 +249,10 @@ export class AudioService implements IAudioService {
   }
 
   private setupConnectionListeners(state: GuildAudioState, guildId: string): void {
+    state.connection.on("stateChange", (_oldState, newState) => {
+      runtimeLog(`${guildId} voice ${newState.status}`);
+    });
+
     state.connection.on(VoiceConnectionStatus.Disconnected, async () => {
       try {
         await Promise.race([

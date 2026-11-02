@@ -12,6 +12,8 @@ export interface HealthStatus {
   };
   audio: {
     activeConnections: number;
+    playback: string[];
+    log: string[];
   };
 }
 

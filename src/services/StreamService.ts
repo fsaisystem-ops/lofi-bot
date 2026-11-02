@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { streamLogger } from "@/utils/logger";
+import { runtimeLog } from "@/utils/runtime-log";
 import type { IStreamService } from "./interfaces/IStreamService";
 
 export class StreamService implements IStreamService {
@@ -44,11 +45,17 @@ export class StreamService implements IStreamService {
       const line = chunk.toString().trim();
       if (line) {
         streamLogger.warn({ ffmpeg: line }, "ffmpeg");
+        runtimeLog(`ffmpeg ${line}`);
       }
     });
 
     proc.on("error", (error) => {
       streamLogger.error({ err: error }, "ffmpeg failed to start");
+      runtimeLog(`ffmpeg failed ${error.message}`);
+    });
+
+    proc.on("exit", (code, signal) => {
+      runtimeLog(`ffmpeg exit code=${code} signal=${signal}`);
     });
 
     return proc;

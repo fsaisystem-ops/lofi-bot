@@ -13,4 +13,5 @@ export interface IAudioService {
   cleanupAll(): void;
   handleVoiceStateUpdate(oldState: VoiceState, newState: VoiceState): void;
   setSessionService(sessionService: ISessionService): void;
+  describePlayback(): string[];
 }

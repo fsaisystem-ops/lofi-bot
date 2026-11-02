@@ -4,6 +4,7 @@ import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { IAudioService } from "./interfaces/IAudioService";
 import type { HealthStatus, IHealthService } from "./interfaces/IHealthService";
+import { runtimeLogLines } from "@/utils/runtime-log";
 
 type Database = BunSQLiteDatabase | PostgresJsDatabase;
 
@@ -41,6 +42,8 @@ export class HealthService implements IHealthService {
       },
       audio: {
         activeConnections: audioConnections,
+        playback: this.audioService.describePlayback(),
+        log: runtimeLogLines(),
       },
     };
   }

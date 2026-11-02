@@ -4,6 +4,7 @@ process.on("warning", (warning) => {
   console.warn(warning);
 });
 
+import { generateDependencyReport } from "@discordjs/voice";
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { config, validateConfig } from "@/config";
 import { db } from "@/database/connection";
@@ -36,6 +37,7 @@ import { HealthService } from "@/services/HealthService";
 import { VersionService } from "@/services/VersionService";
 import { ApiServer } from "@/server/ApiServer";
 import { botLogger, seedLogger } from "@/utils/logger";
+import { runtimeLog } from "@/utils/runtime-log";
 
 // Validate configuration
 validateConfig();
@@ -113,11 +115,20 @@ async function seedDefaultStation(): Promise<void> {
 
 // Event handlers
 client.once(Events.ClientReady, async (readyClient) => {
-  botLogger.info({ tag: readyClient.user.tag }, "Logged in");
-  await ensureSchema();
-  await seedDefaultStation();
-  await sessionService.cleanupOrphanedSessions();
-  apiServer?.start();
+  try {
+    botLogger.info({ tag: readyClient.user.tag }, "Logged in");
+    runtimeLog(`logged in ${readyClient.user.tag}`);
+    await ensureSchema();
+    runtimeLog("schema ok");
+    await seedDefaultStation();
+    runtimeLog("seed ok");
+    await sessionService.cleanupOrphanedSessions();
+    runtimeLog("sessions cleaned");
+  } catch (error) {
+    const text = error instanceof Error ? error.stack ?? error.message : String(error);
+    runtimeLog(`ready failed ${text}`);
+    botLogger.error({ err: error }, "Startup after login failed");
+  }
 });
 
 client.on(Events.MessageCreate, async (message) => {
@@ -137,5 +148,19 @@ process.on("SIGINT", async () => {
   process.exit(0);
 });
 
-// Start the bot
-client.login(config.discord.token);
+export function getApiFetch(): ((request: Request) => Promise<Response>) | null {
+  if (!apiServer) return null;
+  return (request) => apiServer.fetch(request);
+}
+
+export async function main(): Promise<string> {
+  for (const line of generateDependencyReport().split("\n")) {
+    if (line.trim()) runtimeLog(line);
+  }
+  return client.login(config.discord.token);
+}
+
+if (process.env["LOFI_BOOT"] !== "1") {
+  apiServer?.start();
+  void main();
+}

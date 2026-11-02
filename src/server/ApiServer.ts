@@ -1,3 +1,4 @@
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { Elysia } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { healthLogger } from "@/utils/logger";
@@ -8,6 +9,7 @@ import type { GuildController } from "@/controllers/GuildController";
 
 export class ApiServer {
   private app: Elysia;
+  private server: Server | null = null;
 
   constructor(
     private readonly healthService: IHealthService,
@@ -117,13 +119,65 @@ export class ApiServer {
       });
   }
 
+  fetch(request: Request): Promise<Response> {
+    return this.app.fetch(request);
+  }
+
   start(): void {
-    this.app.listen(this.port);
-    healthLogger.info({ port: this.port }, "API server started");
+    if (this.server) return;
+
+    this.server = createServer((req, res) => {
+      this.handleNodeRequest(req, res).catch((error) => {
+        healthLogger.error({ err: error }, "API request failed");
+        if (!res.headersSent) {
+          res.statusCode = 500;
+          res.end("internal error");
+        }
+      });
+    });
+
+    this.server.listen(this.port, "0.0.0.0", () => {
+      healthLogger.info({ port: this.port }, "API server started");
+    });
   }
 
   stop(): void {
-    this.app.stop();
+    this.server?.close();
+    this.server = null;
     healthLogger.info("API server stopped");
+  }
+
+  private async handleNodeRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const host = req.headers.host ?? "127.0.0.1";
+    const method = req.method ?? "GET";
+    const headers = new Headers();
+
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (value == null) continue;
+      headers.set(key, Array.isArray(value) ? value.join(", ") : value);
+    }
+
+    const hasBody = method !== "GET" && method !== "HEAD";
+    const chunks: Buffer[] = [];
+    if (hasBody) {
+      for await (const chunk of req) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+    }
+
+    const response = await this.fetch(
+      new Request(`http://${host}${req.url ?? "/"}`, {
+        method,
+        headers,
+        body: hasBody ? Buffer.concat(chunks) : undefined,
+      })
+    );
+
+    res.statusCode = response.status;
+    response.headers.forEach((value, key) => {
+      if (key.toLowerCase() === "transfer-encoding") return;
+      res.setHeader(key, value);
+    });
+    res.end(Buffer.from(await response.arrayBuffer()));
   }
 }
