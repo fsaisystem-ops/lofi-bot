@@ -7,6 +7,7 @@ process.on("warning", (warning) => {
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { config, validateConfig } from "@/config";
 import { db } from "@/database/connection";
+import { ensureSchema } from "@/database/ensure-schema";
 import { stations } from "@/database/schema";
 import { StationRepository } from "@/repositories/StationRepository";
 import { UserProfileRepository } from "@/repositories/UserProfileRepository";
@@ -113,6 +114,7 @@ async function seedDefaultStation(): Promise<void> {
 // Event handlers
 client.once(Events.ClientReady, async (readyClient) => {
   botLogger.info({ tag: readyClient.user.tag }, "Logged in");
+  await ensureSchema();
   await seedDefaultStation();
   await sessionService.cleanupOrphanedSessions();
   apiServer?.start();
