@@ -9,6 +9,7 @@ export interface GuildAudioState {
   reconnectAttempts: number;
   isPlaying: boolean;
   currentStationId: number | null;
+  currentStreamUrl: string | null;
   channelId: string;
   connectedSince: Date;
 }

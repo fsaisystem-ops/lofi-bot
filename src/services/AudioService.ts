@@ -10,6 +10,7 @@ import {
 } from "@discordjs/voice";
 import type { VoiceBasedChannel, VoiceState } from "discord.js";
 import { config } from "@/config";
+import { shouldLeaveWhenAlone, shouldRetryStream } from "@/services/presence-policy";
 import type { GuildAudioState } from "@/models/types";
 import { streamLogger, playerLogger, logger, voiceLogger } from "@/utils/logger";
 import { runtimeLog } from "@/utils/runtime-log";
@@ -17,14 +18,50 @@ import type { IAudioService } from "./interfaces/IAudioService";
 import type { ISessionService } from "./interfaces/ISessionService";
 import type { IStreamService } from "./interfaces/IStreamService";
 
+type ChannelResolver = (guildId: string, channelId: string) => Promise<VoiceBasedChannel | null>;
+
 export class AudioService implements IAudioService {
   private readonly guildStates = new Map<string, GuildAudioState>();
+  private readonly restoring = new Set<string>();
   private sessionService?: ISessionService;
+  private channelResolver?: ChannelResolver;
+  private holding = true;
 
   constructor(private readonly streamService: IStreamService) {}
 
   setSessionService(sessionService: ISessionService): void {
     this.sessionService = sessionService;
+  }
+
+  setChannelResolver(resolver: ChannelResolver): void {
+    this.channelResolver = resolver;
+  }
+
+  hold(): void {
+    this.holding = true;
+  }
+
+  releaseHold(): void {
+    this.holding = false;
+  }
+
+  isHolding(): boolean {
+    return this.holding;
+  }
+
+  async playInChannel(channel: VoiceBasedChannel, streamUrl: string): Promise<void> {
+    this.hold();
+    const guildId = channel.guild.id;
+    if (this.hasState(guildId)) {
+      this.cleanup(guildId);
+    }
+    if (!this.holding) return;
+    await this.joinChannel(channel);
+    if (!this.holding) {
+      this.cleanup(guildId);
+      return;
+    }
+    await this.startStream(guildId, streamUrl);
   }
 
   getState(guildId: string): GuildAudioState | undefined {
@@ -64,6 +101,7 @@ export class AudioService implements IAudioService {
       reconnectAttempts: 0,
       isPlaying: false,
       currentStationId: null,
+      currentStreamUrl: null,
       channelId: channel.id,
       connectedSince: new Date(),
     };
@@ -102,10 +140,8 @@ export class AudioService implements IAudioService {
       state.player.play(resource);
       state.isPlaying = true;
       state.reconnectAttempts = 0;
+      state.currentStreamUrl = streamUrl;
       runtimeLog("player.play called");
-
-      // Store the URL for reconnection
-      (state as GuildAudioState & { currentStreamUrl?: string }).currentStreamUrl = streamUrl;
 
       streamLogger.info("Started playing radio");
     } catch (error) {
@@ -115,7 +151,7 @@ export class AudioService implements IAudioService {
   }
 
   private async handleStreamError(state: GuildAudioState): Promise<void> {
-    if (state.reconnectAttempts >= config.stream.maxReconnectAttempts) {
+    if (!shouldRetryStream(state.reconnectAttempts, config.stream.maxReconnectAttempts)) {
       streamLogger.error(
         { maxAttempts: config.stream.maxReconnectAttempts },
         "Max reconnection attempts reached"
@@ -126,14 +162,14 @@ export class AudioService implements IAudioService {
 
     state.reconnectAttempts++;
     streamLogger.warn(
-      { attempt: state.reconnectAttempts, maxAttempts: config.stream.maxReconnectAttempts },
+      { attempt: state.reconnectAttempts },
       "Reconnecting..."
     );
 
     await new Promise((resolve) => setTimeout(resolve, config.stream.reconnectDelayMs));
 
-    const streamUrl = (state as GuildAudioState & { currentStreamUrl?: string }).currentStreamUrl;
-    if (state.isPlaying && streamUrl) {
+    const streamUrl = state.currentStreamUrl;
+    if (state.isPlaying && streamUrl && this.holding) {
       await this.startStreamInternal(state, streamUrl);
     }
   }
@@ -205,18 +241,23 @@ export class AudioService implements IAudioService {
       }
 
       const channel = oldState.channel;
-      if (!channel) return;
-
-      // Count non-bot members in the channel
-      const humanMembers = channel.members.filter((member) => !member.user.bot).size;
-
-      if (humanMembers === 0) {
-        voiceLogger.info(
-          { guildId, channelId: state.channelId },
-          "All users left voice channel, stopping bot"
-        );
-        this.cleanup(guildId);
+      if (channel) {
+        const humanMembers = channel.members.filter((member) => !member.user.bot).size;
+        if (shouldLeaveWhenAlone(this.holding, humanMembers)) {
+          voiceLogger.info(
+            { guildId, channelId: state.channelId },
+            "All users left voice channel, stopping bot"
+          );
+          this.cleanup(guildId);
+        }
       }
+    }
+
+    if (oldState.id === oldState.client.user?.id && this.holding) {
+      const homeId = config.autoJoin.channelId;
+      if (!homeId || newState.channelId === homeId) return;
+      const url = state.currentStreamUrl ?? undefined;
+      void this.restore(guildId, homeId, url);
     }
   }
 
@@ -260,12 +301,57 @@ export class AudioService implements IAudioService {
           entersState(state.connection, VoiceConnectionStatus.Connecting, 5000),
         ]);
       } catch {
-        this.cleanup(guildId);
+        if (this.guildStates.get(guildId) !== state) return;
+        if (!this.holding) {
+          this.cleanup(guildId);
+          return;
+        }
+        const homeId = config.autoJoin.channelId || state.channelId;
+        await this.restore(guildId, homeId, state.currentStreamUrl ?? undefined);
       }
     });
 
     state.connection.on(VoiceConnectionStatus.Destroyed, () => {
-      this.cleanup(guildId);
+      if (this.restoring.has(guildId)) return;
+      if (this.guildStates.get(guildId) !== state) return;
+      if (!this.holding) {
+        this.cleanup(guildId);
+        return;
+      }
+      const homeId = config.autoJoin.channelId || state.channelId;
+      void this.restore(guildId, homeId, state.currentStreamUrl ?? undefined);
     });
+  }
+
+  private async restore(guildId: string, channelId: string, streamUrl?: string): Promise<void> {
+    if (!this.holding || this.restoring.has(guildId)) return;
+    this.restoring.add(guildId);
+    try {
+      this.cleanup(guildId);
+      if (!this.holding) return;
+      const channel = this.channelResolver
+        ? await this.channelResolver(guildId, channelId)
+        : null;
+      if (!this.holding) return;
+      if (!channel) {
+        throw new Error(`channel ${channelId} unavailable`);
+      }
+      await this.joinChannel(channel);
+      if (streamUrl) {
+        await this.startStream(guildId, streamUrl);
+      }
+      runtimeLog(`${guildId} rejoined ${channelId}`);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      runtimeLog(`${guildId} rejoin failed ${text}`);
+      setTimeout(() => {
+        this.restoring.delete(guildId);
+        if (this.holding) {
+          void this.restore(guildId, channelId, streamUrl);
+        }
+      }, config.stream.reconnectDelayMs);
+      return;
+    }
+    this.restoring.delete(guildId);
   }
 }

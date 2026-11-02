@@ -79,9 +79,9 @@ export class GuildController {
       this.audioService.cleanup(guildId);
     }
 
-    const state = await this.audioService.joinChannel(channel as VoiceChannel);
-    state.currentStationId = stationId;
-    await this.audioService.startStream(guildId, station.url);
+    await this.audioService.playInChannel(channel as VoiceChannel, station.url);
+    const state = this.audioService.getState(guildId);
+    if (state) state.currentStationId = stationId;
 
     // Create listening sessions for users already in the voice channel
     const voiceChannel = channel as VoiceChannel;
@@ -104,11 +104,13 @@ export class GuildController {
       return { data: { error: "No active connection in this guild" }, status: 404 };
     }
 
+    this.audioService.releaseHold();
     this.audioService.cleanup(guildId);
     return { data: { success: true }, status: 200 };
   }
 
   async stopAll() {
+    this.audioService.releaseHold();
     this.audioService.cleanupAll();
     return { data: { success: true }, status: 200 };
   }

@@ -63,6 +63,11 @@ const profileService = new ProfileService(
 );
 const sessionService = new SessionService(sessionRepository, profileService);
 audioService.setSessionService(sessionService);
+audioService.setChannelResolver(async (guildId, channelId) => {
+  const guild = client.guilds.cache.get(guildId) ?? (await client.guilds.fetch(guildId));
+  const channel = guild.channels.cache.get(channelId) ?? (await guild.channels.fetch(channelId));
+  return channel?.isVoiceBased() ? channel : null;
+});
 const healthService = new HealthService(client, db, audioService);
 const versionService = new VersionService(healthService);
 const stationController = new StationController(stationService);
@@ -108,6 +113,43 @@ async function seedDefaultStation(): Promise<void> {
   }
 }
 
+async function joinHomeChannel(): Promise<void> {
+  const { guildId, channelId } = config.autoJoin;
+  if (!guildId || !channelId) return;
+
+  for (;;) {
+    if (!audioService.isHolding()) return;
+    try {
+      const guild = client.guilds.cache.get(guildId) ?? (await client.guilds.fetch(guildId));
+      const channel = guild.channels.cache.get(channelId) ?? (await guild.channels.fetch(channelId));
+      if (!channel?.isVoiceBased()) {
+        throw new Error(`channel ${channelId} is not voice`);
+      }
+      const station = await stationService.getDefaultStation();
+      if (!station) {
+        throw new Error("no default station");
+      }
+      if (audioService.hasState(guildId)) {
+        runtimeLog(`home already in ${channelId}`);
+        return;
+      }
+      await audioService.joinChannel(channel);
+      if (!audioService.isHolding()) {
+        audioService.cleanup(guildId);
+        return;
+      }
+      await audioService.startStream(guildId, station.url);
+      runtimeLog(`home joined ${channelId} ${station.name}`);
+      return;
+    } catch (error) {
+      if (!audioService.isHolding()) return;
+      const text = error instanceof Error ? error.message : String(error);
+      runtimeLog(`home join failed ${text}`);
+      await new Promise((resolve) => setTimeout(resolve, config.stream.reconnectDelayMs));
+    }
+  }
+}
+
 // Event handlers
 client.once(Events.ClientReady, async (readyClient) => {
   try {
@@ -131,6 +173,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     runtimeLog(`ready failed ${text}`);
     botLogger.error({ err: error }, "Startup after login failed");
   }
+  void joinHomeChannel();
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

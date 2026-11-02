@@ -10,7 +10,11 @@ export const config = {
   },
   stream: {
     reconnectDelayMs: 5000,
-    maxReconnectAttempts: 5,
+    maxReconnectAttempts: Number.POSITIVE_INFINITY,
+  },
+  autoJoin: {
+    guildId: process.env.AUTO_GUILD_ID || "1522606019325464668",
+    channelId: process.env.AUTO_CHANNEL_ID || "1523286067116245164",
   },
   api: {
     port: parseInt(process.env.API_PORT || "3000", 10),

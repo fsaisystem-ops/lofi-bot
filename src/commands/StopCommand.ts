@@ -23,6 +23,7 @@ export class StopCommand implements ICommand {
       return { success: false, message: this.view.notPlaying() };
     }
 
+    this.audioService.releaseHold();
     this.audioService.cleanup(guildId);
     return { success: true, message: this.view.stopped() };
   }

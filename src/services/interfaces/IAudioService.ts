@@ -11,6 +11,9 @@ export interface IAudioService {
   stopStream(guildId: string): void;
   cleanup(guildId: string): void;
   cleanupAll(): void;
+  hold(): void;
+  releaseHold(): void;
+  playInChannel(channel: VoiceBasedChannel, streamUrl: string): Promise<void>;
   handleVoiceStateUpdate(oldState: VoiceState, newState: VoiceState): void;
   setSessionService(sessionService: ISessionService): void;
   describePlayback(): string[];

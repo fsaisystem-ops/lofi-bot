@@ -45,8 +45,7 @@ export class PlayCommand implements ICommand {
     }
 
     try {
-      await this.audioService.joinChannel(voiceChannel);
-      await this.audioService.startStream(guildId, station.url);
+      await this.audioService.playInChannel(voiceChannel, station.url);
 
       // Start listening session for the user
       const userId = actor.id;
