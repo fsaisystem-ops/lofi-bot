@@ -9,7 +9,6 @@ import { Client, Events, GatewayIntentBits } from "discord.js";
 import { config, validateConfig } from "@/config";
 import { db } from "@/database/connection";
 import { ensureSchema } from "@/database/ensure-schema";
-import { stations } from "@/database/schema";
 import { StationRepository } from "@/repositories/StationRepository";
 import { UserProfileRepository } from "@/repositories/UserProfileRepository";
 import { GuildUserStatsRepository } from "@/repositories/GuildUserStatsRepository";
@@ -36,6 +35,8 @@ import { GuildController } from "@/controllers/GuildController";
 import { HealthService } from "@/services/HealthService";
 import { VersionService } from "@/services/VersionService";
 import { ApiServer } from "@/server/ApiServer";
+import { activeStationId, nextStation, STATION_CATALOG, stationsToInsert } from "@/services/station-catalog";
+import { ROTATION_MS, StationRotation } from "@/services/station-rotation";
 import { botLogger, seedLogger } from "@/utils/logger";
 import { runtimeLog } from "@/utils/runtime-log";
 
@@ -68,10 +69,19 @@ audioService.setChannelResolver(async (guildId, channelId) => {
   const channel = guild.channels.cache.get(channelId) ?? (await guild.channels.fetch(channelId));
   return channel?.isVoiceBased() ? channel : null;
 });
+const rotation = new StationRotation(ROTATION_MS, () => {
+  void rotateHomeStation();
+});
 const healthService = new HealthService(client, db, audioService);
 const versionService = new VersionService(healthService);
 const stationController = new StationController(stationService);
-const guildController = new GuildController(audioService, stationService, sessionService, client);
+const guildController = new GuildController(
+  audioService,
+  stationService,
+  sessionService,
+  client,
+  rotation
+);
 const apiServer = config.api.enabled
   ? new ApiServer(
       healthService,
@@ -84,10 +94,10 @@ const apiServer = config.api.enabled
   : null;
 
 // Initialize controller and register commands
-const commandController = new CommandController();
+const commandController = new CommandController(stationService);
 commandController.registerCommands([
-  new PlayCommand(audioService, stationService, sessionService),
-  new StopCommand(audioService),
+  new PlayCommand(audioService, stationService, sessionService, rotation),
+  new StopCommand(audioService, rotation),
   new StationsCommand(stationService),
   new AddStationCommand(stationService),
   new RemoveStationCommand(stationService),
@@ -98,18 +108,58 @@ commandController.registerCommands([
   new GlobalRankCommand(profileService, client),
 ]);
 
-// Seed default station if none exist
-async function seedDefaultStation(): Promise<void> {
-  const existingStations = await stationService.getAllStations();
-  if (existingStations.length === 0) {
-    seedLogger.info("No stations found, creating default Lofi station...");
-    await db.insert(stations).values({
-      name: "Lofi Girl",
-      url: "https://play.streamafrica.net/lofiradio",
-      description: "Lofi hip hop radio - beats to relax/study to",
-      isDefault: true,
-    });
-    seedLogger.info("Default station created");
+async function seedStations(): Promise<void> {
+  const existing = await stationService.getAllStations();
+  const missing = stationsToInsert(existing, STATION_CATALOG);
+  for (const station of missing) {
+    try {
+      await stationRepository.create({
+        name: station.name,
+        url: station.url,
+        description: station.description,
+        isDefault: station.isDefault ?? false,
+      });
+      seedLogger.info({ name: station.name }, "Station added");
+    } catch (error) {
+      seedLogger.error({ name: station.name, err: error }, "Station seed failed");
+    }
+  }
+  runtimeLog(`seed added ${missing.length}`);
+}
+
+async function rotateHomeStation(): Promise<void> {
+  if (!audioService.isHolding()) return;
+  const guildId = config.autoJoin.guildId;
+  const state = audioService.getState(guildId);
+  if (!state) {
+    if (audioService.isHolding()) rotation.started();
+    return;
+  }
+
+  try {
+    const all = await stationService.getAllStations();
+    if (!audioService.isHolding()) return;
+    const freshState = audioService.getState(guildId);
+    if (!freshState) {
+      if (audioService.isHolding()) rotation.started();
+      return;
+    }
+    const currentId = activeStationId(all, freshState.currentStationId, freshState.currentStreamUrl);
+    const next = nextStation(all, currentId);
+    if (!next) {
+      if (audioService.isHolding()) rotation.started();
+      return;
+    }
+    await audioService.startStream(guildId, next.url);
+    if (!audioService.isHolding()) return;
+    const fresh = audioService.getState(guildId);
+    if (fresh) fresh.currentStationId = next.id;
+    runtimeLog(`rotated ${next.name}`);
+    rotation.started();
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    runtimeLog(`rotate failed ${text}`);
+    if (audioService.isHolding()) rotation.started();
   }
 }
 
@@ -130,6 +180,9 @@ async function joinHomeChannel(): Promise<void> {
         throw new Error("no default station");
       }
       if (audioService.hasState(guildId)) {
+        const state = audioService.getState(guildId);
+        if (state && state.currentStationId == null) state.currentStationId = station.id;
+        if (state?.currentStreamUrl) rotation.started();
         runtimeLog(`home already in ${channelId}`);
         return;
       }
@@ -139,6 +192,9 @@ async function joinHomeChannel(): Promise<void> {
         return;
       }
       await audioService.startStream(guildId, station.url);
+      const state = audioService.getState(guildId);
+      if (state) state.currentStationId = station.id;
+      rotation.started();
       runtimeLog(`home joined ${channelId} ${station.name}`);
       return;
     } catch (error) {
@@ -157,7 +213,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     runtimeLog(`logged in ${readyClient.user.tag}`);
     await ensureSchema();
     runtimeLog("schema ok");
-    await seedDefaultStation();
+    await seedStations();
     runtimeLog("seed ok");
     await sessionService.cleanupOrphanedSessions();
     runtimeLog("sessions cleaned");
@@ -177,6 +233,10 @@ client.once(Events.ClientReady, async (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isAutocomplete()) {
+    await commandController.handleAutocomplete(interaction);
+    return;
+  }
   if (!interaction.isChatInputCommand()) return;
   await commandController.handleInteraction(interaction);
 });

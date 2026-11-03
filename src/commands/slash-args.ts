@@ -3,6 +3,7 @@ export interface SlashOption {
   name: string;
   description: string;
   required: boolean;
+  autocomplete?: boolean;
 }
 
 export interface SlashBody {
@@ -19,8 +20,9 @@ export interface SlashOptionValues {
 const stationOption: SlashOption = {
   type: 3,
   name: "station",
-  description: "Station name or id",
+  description: "Escolha a rádio",
   required: false,
+  autocomplete: true,
 };
 
 const idOption: SlashOption = {

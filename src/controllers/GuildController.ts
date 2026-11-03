@@ -3,6 +3,7 @@ import { ChannelType } from "discord.js";
 import type { IAudioService } from "@/services/interfaces/IAudioService";
 import type { ISessionService } from "@/services/interfaces/ISessionService";
 import type { IStationService } from "@/services/interfaces/IStationService";
+import type { StationClock } from "@/services/station-rotation";
 
 interface GuildAudioResponse {
   isPlaying: boolean;
@@ -32,7 +33,8 @@ export class GuildController {
     private readonly audioService: IAudioService,
     private readonly stationService: IStationService,
     private readonly sessionService: ISessionService,
-    private readonly client: Client
+    private readonly client: Client,
+    private readonly clock?: StationClock
   ) {}
 
   async getGuilds() {
@@ -82,6 +84,7 @@ export class GuildController {
     await this.audioService.playInChannel(channel as VoiceChannel, station.url);
     const state = this.audioService.getState(guildId);
     if (state) state.currentStationId = stationId;
+    if (state) this.clock?.started();
 
     // Create listening sessions for users already in the voice channel
     const voiceChannel = channel as VoiceChannel;
@@ -104,12 +107,14 @@ export class GuildController {
       return { data: { error: "No active connection in this guild" }, status: 404 };
     }
 
+    this.clock?.stopped();
     this.audioService.releaseHold();
     this.audioService.cleanup(guildId);
     return { data: { success: true }, status: 200 };
   }
 
   async stopAll() {
+    this.clock?.stopped();
     this.audioService.releaseHold();
     this.audioService.cleanupAll();
     return { data: { success: true }, status: 200 };

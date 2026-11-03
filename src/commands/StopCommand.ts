@@ -1,5 +1,6 @@
 import type { CommandContext, CommandResult } from "@/models/types";
 import type { IAudioService } from "@/services/interfaces/IAudioService";
+import type { StationClock } from "@/services/station-rotation";
 import { MessageView } from "@/views/MessageView";
 import type { ICommand } from "./interfaces/ICommand";
 
@@ -11,7 +12,10 @@ export class StopCommand implements ICommand {
 
   private readonly view = new MessageView();
 
-  constructor(private readonly audioService: IAudioService) {}
+  constructor(
+    private readonly audioService: IAudioService,
+    private readonly clock?: StationClock
+  ) {}
 
   async execute(context: CommandContext): Promise<CommandResult> {
     const guildId = context.guildId;
@@ -23,6 +27,7 @@ export class StopCommand implements ICommand {
       return { success: false, message: this.view.notPlaying() };
     }
 
+    this.clock?.stopped();
     this.audioService.releaseHold();
     this.audioService.cleanup(guildId);
     return { success: true, message: this.view.stopped() };

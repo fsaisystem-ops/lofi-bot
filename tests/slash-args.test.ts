@@ -36,8 +36,9 @@ test("play aceita o nome da radio e tambem roda sem ele", () => {
     {
       type: 3,
       name: "station",
-      description: "Station name or id",
+      description: "Escolha a rádio",
       required: false,
+      autocomplete: true,
     },
   ]);
   assert.deepEqual(argsFromOptions("play", options({ strings: { station: "Lofi Girl" } })), [

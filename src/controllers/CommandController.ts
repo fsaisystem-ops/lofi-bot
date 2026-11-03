@@ -1,7 +1,14 @@
-import { PermissionFlagsBits, type ChatInputCommandInteraction, type Client } from "discord.js";
+import {
+  PermissionFlagsBits,
+  type AutocompleteInteraction,
+  type ChatInputCommandInteraction,
+  type Client,
+} from "discord.js";
 import type { ICommand } from "@/commands/interfaces/ICommand";
 import { argsFromOptions, slashBodies } from "@/commands/slash-args";
 import type { CommandActor } from "@/models/types";
+import type { IStationService } from "@/services/interfaces/IStationService";
+import { stationSuggestions } from "@/services/station-catalog";
 import { commandLogger } from "@/utils/logger";
 import { runtimeLog } from "@/utils/runtime-log";
 import { isAdminAccess } from "@/utils/permissions";
@@ -36,6 +43,8 @@ export class CommandController {
   private readonly commands = new Map<string, ICommand>();
   private readonly view = new MessageView();
 
+  constructor(private readonly stationService?: IStationService) {}
+
   registerCommand(command: ICommand): void {
     this.commands.set(command.name.toLowerCase(), command);
   }
@@ -50,6 +59,26 @@ export class CommandController {
     for (const guild of client.guilds.cache.values()) {
       await guild.commands.set(slashBodies);
       runtimeLog(`slash ${guild.id} ${slashBodies.length}`);
+    }
+  }
+
+  async handleAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
+    if (interaction.commandName !== "play" || !this.stationService) {
+      await interaction.respond([]);
+      return;
+    }
+
+    try {
+      const stations = await this.stationService.getAllStations();
+      await interaction.respond(stationSuggestions(stations, interaction.options.getFocused()));
+    } catch (error) {
+      commandLogger.error({ err: error }, "Failed to suggest stations");
+      if (interaction.responded) return;
+      try {
+        await interaction.respond([]);
+      } catch {
+        // The menu can close before the list returns.
+      }
     }
   }
 

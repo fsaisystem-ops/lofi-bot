@@ -2,6 +2,7 @@ import type { CommandContext, CommandResult } from "@/models/types";
 import type { IAudioService } from "@/services/interfaces/IAudioService";
 import type { ISessionService } from "@/services/interfaces/ISessionService";
 import type { IStationService } from "@/services/interfaces/IStationService";
+import type { StationClock } from "@/services/station-rotation";
 import { commandLogger } from "@/utils/logger";
 import { MessageView } from "@/views/MessageView";
 import type { ICommand } from "./interfaces/ICommand";
@@ -17,7 +18,8 @@ export class PlayCommand implements ICommand {
   constructor(
     private readonly audioService: IAudioService,
     private readonly stationService: IStationService,
-    private readonly sessionService: ISessionService
+    private readonly sessionService: ISessionService,
+    private readonly clock?: StationClock
   ) {}
 
   async execute(context: CommandContext): Promise<CommandResult> {
@@ -28,15 +30,11 @@ export class PlayCommand implements ICommand {
       return { success: false, message: "This command can only be used in a server." };
     }
 
-    if (!voiceChannel) {
+    const switching = this.audioService.hasState(guildId);
+    if (!switching && !voiceChannel) {
       return { success: false, message: this.view.notInVoiceChannel() };
     }
 
-    if (this.audioService.hasState(guildId)) {
-      return { success: false, message: this.view.alreadyPlaying() };
-    }
-
-    // Resolve the station to play
     const stationQuery = args.join(" ") || undefined;
     const station = await this.stationService.resolveStation(stationQuery);
 
@@ -45,16 +43,29 @@ export class PlayCommand implements ICommand {
     }
 
     try {
-      await this.audioService.playInChannel(voiceChannel, station.url);
+      if (switching) {
+        await this.audioService.startStream(guildId, station.url);
+      } else if (voiceChannel) {
+        await this.audioService.playInChannel(voiceChannel, station.url);
+      }
 
-      // Start listening session for the user
-      const userId = actor.id;
-      await this.sessionService.startSession(guildId, userId, station.id, {
-        userId,
-        username: actor.username,
-        displayName: actor.displayName,
-        avatarUrl: actor.avatarUrl,
-      });
+      const state = this.audioService.getState(guildId);
+      if (!state) {
+        return { success: false, message: this.view.failedToJoin() };
+      }
+      state.currentStationId = station.id;
+      this.clock?.started();
+
+      const listeningHere = voiceChannel?.id === state.channelId;
+      if (listeningHere) {
+        const userId = actor.id;
+        await this.sessionService.startSession(guildId, userId, station.id, {
+          userId,
+          username: actor.username,
+          displayName: actor.displayName,
+          avatarUrl: actor.avatarUrl,
+        });
+      }
 
       return { success: true, message: this.view.nowPlaying(station.name) };
     } catch (error) {
@@ -62,7 +73,7 @@ export class PlayCommand implements ICommand {
         { command: "play", guildId, stationId: station.id, err: error },
         "Failed to play station"
       );
-      this.audioService.cleanup(guildId);
+      if (!switching) this.audioService.cleanup(guildId);
       return { success: false, message: this.view.failedToJoin() };
     }
   }
