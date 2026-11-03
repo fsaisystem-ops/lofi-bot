@@ -4,6 +4,8 @@
 
 A Discord bot that streams radio stations to voice channels. Built with Bun, TypeScript, and PostgreSQL.
 
+Fork of [MeninoNias/lofi-bot](https://github.com/MeninoNias/lofi-bot) by Ananias Raphael. The original project is MIT licensed. See [LICENSE](LICENSE).
+
 ## Features
 
 - Stream multiple radio stations to Discord voice channels
@@ -165,6 +167,10 @@ docker compose up -d
 ## Architecture
 
 See [docs/bot-architecture.md](docs/bot-architecture.md) for detailed architecture documentation.
+
+## Credits
+
+This repository is a fork of [MeninoNias/lofi-bot](https://github.com/MeninoNias/lofi-bot), by Ananias Raphael. The original work stays under the MIT license in [LICENSE](LICENSE).
 
 ## License
 
